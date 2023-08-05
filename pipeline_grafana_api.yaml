@@ -1,0 +1,151 @@
+working pipeline:
+
+pipeline {
+    agent any
+
+    environment {
+        GRAFANA_API_KEY = 'eyJrIjoiOERoVDlSWjRjZGx2T1RZTGo3WEp5S0NiNEYwb3NVMngiLCJuIjoiamVua2luc19hcGkiLCJpZCI6MX0=' // Replace with your Grafana API key
+        GRAFANA_URL = 'http://grafana:3000' // Replace with your Grafana URL
+        PANEL_UID = 'pMEd7m0Mz' // Replace with your desired panel UID
+        FOLDER_UID = 'G_lqkvq4k' // Replace with the folder UID where you want to place the dashboard
+    }
+
+    stages {
+        stage('Create JSON Dashboard') {
+            steps {
+                script {
+                    // Create the JSON panel content
+                    def panelData = """
+                    {
+                        "id": 2,
+                        "uid": "${env.PANEL_UID}",
+                        "title": "Panel Title",
+                        "tags": ["templated"],
+                        "timezone": "browser",
+                        "schemaVersion": 16,
+                        "version": 0,
+                        "refresh": "25s",
+                        "panels": [
+                            {
+                                "id": 1,
+                                "gridPos": {
+                                    "x": 0,
+                                    "y": 0,
+                                    "w": 12,
+                                    "h": 9
+                                },
+                                "type": "timeseries",
+                                "title": "Panel Title",
+                                "targets": [
+                                    {
+                                        "refId": "A",
+                                        "datasource": {
+                                            "type": "prometheus",
+                                            "uid": "wiiIsyjVk"
+                                        },
+                                        "expr": "container_cpu_usage_seconds_total"
+                                    }
+                                ],
+                                "options": {
+                                    "tooltip": {
+                                        "mode": "single",
+                                        "sort": "none"
+                                    },
+                                    "legend": {
+                                        "displayMode": "list",
+                                        "placement": "bottom",
+                                        "calcs": []
+                                    }
+                                },
+                                "fieldConfig": {
+                                    "defaults": {
+                                        "custom": {
+                                            "drawStyle": "line",
+                                            "lineInterpolation": "linear",
+                                            "barAlignment": 0,
+                                            "lineWidth": 1,
+                                            "fillOpacity": 0,
+                                            "gradientMode": "none",
+                                            "spanNulls": false,
+                                            "showPoints": "auto",
+                                            "pointSize": 5,
+                                            "stacking": {
+                                                "mode": "none",
+                                                "group": "A"
+                                            },
+                                            "axisPlacement": "auto",
+                                            "axisLabel": "",
+                                            "scaleDistribution": {
+                                                "type": "linear"
+                                            },
+                                            "hideFrom": {
+                                                "tooltip": false,
+                                                "viz": false,
+                                                "legend": false
+                                            },
+                                            "thresholdsStyle": {
+                                                "mode": "off"
+                                            }
+                                        },
+                                        "color": {
+                                            "mode": "palette-classic"
+                                        },
+                                        "mappings": [],
+                                        "thresholds": {
+                                            "mode": "absolute",
+                                            "steps": [
+                                                {
+                                                    "value": null,
+                                                    "color": "green"
+                                                },
+                                                {
+                                                    "value": 80,
+                                                    "color": "red"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "overrides": []
+                                },
+                                "datasource": {
+                                    "uid": "wiiIsyjVk",
+                                    "type": "prometheus"
+                                }
+                            }
+                        ]
+                    }
+                    """
+                    
+                    // Write the JSON panel content to a file
+                    writeFile file: 'dashboard.json', text: panelData
+                }
+            }
+        }
+        
+        stage('Create Grafana Panel') {
+            steps {
+                script {
+                    def dashboardContent = readFile('dashboard.json')
+
+                    def grafanaRequestBody = """
+                    {
+                        "dashboard": ${dashboardContent},
+                        "folderId": 0,
+                        "folderUid": "${env.FOLDER_UID}",
+                        "message": "Created a new dashboard",
+                        "overwrite": true
+                    }
+                    """
+
+                    def grafanaEndpoint = "${env.GRAFANA_URL}/api/dashboards/db"
+                    def authHeader = "-H \"Authorization: Bearer ${env.GRAFANA_API_KEY}\""
+
+                    // Replace newlines with spaces in the JSON data
+                    def requestBody = grafanaRequestBody.trim().replaceAll('\n', ' ')
+                    // Execute the curl command to create the dashboard
+                    sh "curl -X POST -H \"Accept: application/json\" -H \"Content-Type: application/json\" $authHeader -d '$requestBody' $grafanaEndpoint"
+                }
+            }
+        }
+    }
+}

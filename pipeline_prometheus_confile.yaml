@@ -1,0 +1,95 @@
+working pipeline:
+
+
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'JOB_NAME', defaultValue: 'your_job_name', description: 'Enter the job name')
+        string(name: 'TARGET', defaultValue: '', description: 'Enter the target you want to add')
+        choice(name: 'ACTION', choices: ['Add', 'Delete'], description: 'Choose whether to add or delete the job name')
+    }
+
+    stages {
+        stage('Modify Prometheus Config') {
+            steps {
+                script {
+                    def prometheusConfigPath = "/prometheus_config/prometheus.yml"
+                    def prometheusConfig = readFile(prometheusConfigPath)
+
+                    // Display the current prometheus.yml content
+                    echo "Current prometheus.yml config:\n${prometheusConfig}"
+
+                    // Proceed to modify the prometheus.yml content based on the chosen action
+                    def jobName = params.JOB_NAME
+                    def target = params.TARGET
+                    def action = params.ACTION
+
+                    if (action == 'Add' && !target.isEmpty()) {
+                        // Create the new job and target entry block
+                        def newJobConfig = "  - job_name: '${jobName}'\n    static_configs:\n      - targets: ['${target}']\n"
+
+                        // Find the last occurrence of a job block in the config
+                        def pattern = /- job_name: '[^']+'\s+static_configs:\s+(- targets: \['[^']+'\])/
+                        def matcher = (prometheusConfig =~ pattern)
+                        def lastIndex = -1
+                        while (matcher.find()) {
+                            lastIndex = matcher.end()
+                        }
+
+                        // If a previous job block is found, get the index of the next line after the last occurrence
+                        def nextLineIndex = lastIndex >= 0 ? prometheusConfig.indexOf('\n', lastIndex) + 1 : -1
+
+                        // Insert the new job entry block after the last occurrence, aligning it with the previous job blocks
+                        if (nextLineIndex >= 0) {
+                            prometheusConfig = prometheusConfig.substring(0, nextLineIndex) + newJobConfig + prometheusConfig.substring(nextLineIndex)
+                        } else {
+                            // If no previous job block is found, add the new job entry block to the end of the file without considering indentation
+                            prometheusConfig += "\n" + newJobConfig
+                        }
+                    } else if (action == 'Delete') {
+                        def pattern = /- job_name: '$jobName'\s+static_configs:\s+(- targets: \['[^']+'\])/
+                        prometheusConfig = prometheusConfig.replaceAll(pattern, "")
+                    }
+
+                    // Write the modified prometheus.yml back to the file
+                    writeFile(file: prometheusConfigPath, text: prometheusConfig)
+
+                    // Display the modified prometheus.yml content
+                    echo "Modified prometheus.yml config:\n${prometheusConfig}"
+                }
+            }
+        }
+
+        stage('Test Prometheus Config') {
+            steps {
+                script {
+                    def prometheusConfigPath = "/prometheus_config/prometheus.yml"
+
+                    // Run promtool to test the prometheus.yml for validity
+                    def promtoolOutput = sh(script: "promtool check config ${prometheusConfigPath}", returnStatus: true)
+
+                    // Check the exit status of the promtool command to determine if the config is valid
+                    if (promtoolOutput == 0) {
+                        echo "Prometheus config is valid."
+                    } else {
+                        error "Prometheus config is invalid. Please check your configuration."
+                    }
+                }
+            }
+        }
+
+        stage('Restart Prometheus Container') {
+            steps {
+                script {
+                    def prometheusContainerId = sh(
+                        script: "docker ps -q -f network=prometheus-net -f ancestor=prom/prometheus",
+                        returnStdout: true
+                    ).trim()
+
+                    sh "docker restart ${prometheusContainerId}"
+                }
+            }
+        }
+    }
+}

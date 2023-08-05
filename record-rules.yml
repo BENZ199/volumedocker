@@ -1,0 +1,5 @@
+groups:
+  - name: "node-exporter-recording-rules"
+    rules:
+      - record: total_cpu_seconds
+        expr: sum(node_cpu_seconds_total) by (instance)

@@ -1,0 +1,41 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Backup') {
+            steps {
+                script {
+                    // Arrêt des services Prometheus et Grafana
+                    sh 'docker stop prometheus grafana'
+
+                    // Sauvegarde des données de Prometheus
+                    sh 'docker run --rm --network prometheus-net -v /home/ybenzakour/prometheus:/backup -v /home/ybenzakour/prometheus:/etc/prometheus busybox tar -czvf /backup/prometheus_backup.tar.gz -C /etc/prometheus .'
+
+                    // Sauvegarde des données de Grafana
+                    sh 'docker run --rm --network prometheus-net -v /home/ybenzakour/prometheus:/backup -v /home/ybenzakour/prometheus:/var/lib/grafana busybox tar -czvf /backup/grafana_backup.tar.gz -C /var/lib/grafana .'
+
+                    // Redémarrage des services Prometheus et Grafana
+                    sh 'docker start prometheus grafana'
+                }
+            }
+        }
+
+        stage('Restore') {
+            steps {
+                script {
+                    // Arrêt des services Prometheus et Grafana
+                    sh 'docker stop prometheus grafana'
+
+                    // Restauration des données de Prometheus
+                    sh 'docker run --rm --network prometheus-net -v /home/ybenzakour/prometheus:/backup -v /home/ybenzakour/prometheus:/etc/prometheus busybox tar -xzvf /backup/prometheus_backup.tar.gz -C /etc/prometheus'
+
+                    // Restauration des données de Grafana
+                    sh 'docker run --rm --network prometheus-net -v /home/ybenzakour/prometheus:/backup -v /home/ybenzakour/prometheus:/var/lib/grafana busybox tar -xzvf /backup/grafana_backup.tar.gz -C /var/lib/grafana'
+
+                    // Redémarrage des services Prometheus et Grafana
+                    sh 'docker start prometheus grafana'
+                }
+            }
+        }
+    }
+}
